@@ -1,4 +1,4 @@
-# Observability Stack für macOS Tahoe
+# Observability Stack für macOS
 
 Lokaler, reproduzierbarer Observability-Stack für Docker Desktop:
 
