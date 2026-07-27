@@ -1,0 +1,121 @@
+name: observability-stack
+
+services:
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-v3.12.0}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [observability]
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-13.1.0}
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD muss in .env gesetzt sein}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SERVER_DOMAIN: localhost
+      GF_LOG_MODE: console
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [observability]
+
+  loki:
+    image: grafana/loki:${LOKI_VERSION:-3.6.11}
+    restart: unless-stopped
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    networks: [observability]
+
+  promtail:
+    image: grafana/promtail:${PROMTAIL_VERSION:-3.6.11}
+    restart: unless-stopped
+    depends_on:
+      loki:
+        condition: service_started
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - ./sample-logs:/var/log/apps:ro
+      - promtail-data:/run/promtail
+    networks: [observability]
+
+  log-generator:
+    image: busybox:${BUSYBOX_VERSION:-1.37.0}
+    restart: unless-stopped
+    init: true
+    environment:
+      LOG_INTERVAL_SECONDS: ${LOG_INTERVAL_SECONDS:-15}
+    command:
+      - sh
+      - -ec
+      - |
+        counter=0
+        while true; do
+          counter=$$((counter + 1))
+          printf '{"timestamp":"%s","level":"info","service":"demo","message":"Observability-Testereignis %s"}\n' \
+            "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$counter" >> /var/log/apps/demo.log
+          sleep "$${LOG_INTERVAL_SECONDS}"
+        done
+    volumes:
+      - ./sample-logs:/var/log/apps
+    networks: [observability]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.157.0}
+    profiles: ["otel"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${OTEL_GRPC_PORT:-4317}:4317"
+      - "${BIND_ADDRESS:-127.0.0.1}:${OTEL_HTTP_PORT:-4318}:4318"
+      - "${BIND_ADDRESS:-127.0.0.1}:${OTEL_PROMETHEUS_PORT:-8889}:8889"
+    volumes:
+      - ./otel-collector/config.yml:/etc/otelcol-contrib/config.yml:ro
+    networks: [observability]
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  promtail-data:
