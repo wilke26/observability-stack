@@ -23,6 +23,11 @@ scrape_configs:
     static_configs:
       - targets: ["promtail:9080"]
 
+  - job_name: 'isd'
+    static_configs:
+      - targets: ['host.docker.internal:80']
+    metrics_path: '/metrics'
+
   # Ist der Compose-Profil-Dienst "otel" deaktiviert, erscheint dieses Target
   # erwartungsgemäß als DOWN. Aktivieren: docker compose --profile otel up -d
   - job_name: otel-collector
