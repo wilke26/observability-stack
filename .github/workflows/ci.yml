@@ -33,3 +33,7 @@ jobs:
         run: docker compose config --quiet
 
       - name: Validate Prometheus configuration
+        run: |
+          docker compose run --rm --no-deps \
+            --entrypoint /bin/promtool \
+            prometheus check config /etc/prometheus/prometheus.yml
