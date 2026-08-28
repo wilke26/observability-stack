@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare CI configuration
+        run: |
+          cp .env.example .env
+          mkdir -p secrets
+          printf '%s\n' 'ci-only-metrics-token' > secrets/isd_metrics_token
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+      - name: Validate Prometheus configuration
+        run: |
+          docker compose run --rm --no-deps \
+            --entrypoint /bin/promtool \
+            prometheus check config /etc/prometheus/prometheus.yml
