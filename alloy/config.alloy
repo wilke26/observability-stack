@@ -1,0 +1,56 @@
+// Equivalent to the previous Promtail pipeline, generated with Alloy's
+// official `convert --source-format=promtail` command and reviewed manually.
+loki.process "sample_logs" {
+	forward_to = [loki.write.default.receiver]
+
+	stage.json {
+		expressions = {
+			level     = "level",
+			message   = "message",
+			service   = "service",
+			timestamp = "timestamp",
+		}
+	}
+
+	stage.timestamp {
+		source = "timestamp"
+		format = "RFC3339"
+	}
+
+	stage.labels {
+		values = {
+			level   = null,
+			service = null,
+		}
+	}
+
+	stage.output {
+		source = "message"
+	}
+}
+
+loki.source.file "sample_logs" {
+	targets = [{
+		__address__ = "localhost",
+		__path__    = "/var/log/apps/*.log",
+		environment = "local",
+		job         = "sample-logs",
+	}]
+	forward_to = [loki.process.sample_logs.receiver]
+
+	file_match {
+		enabled = true
+	}
+
+	// Promtail's legacy volume is root-owned while Alloy deliberately runs as
+	// an unprivileged user. Start at the end of existing files during the
+	// one-time migration: their old entries are already stored in Loki, while
+	// newly appended lines are processed without duplicates.
+	tail_from_end = true
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

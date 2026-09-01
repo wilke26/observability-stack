@@ -5,7 +5,8 @@ Lokaler, reproduzierbarer Observability-Stack für Docker Desktop:
 - **Prometheus** sammelt und speichert Metriken.
 - **Grafana** visualisiert Metriken und Logs.
 - **Loki** speichert Logs.
-- **Promtail** liest lokale Beispiel- und Anwendungslogs.
+- **Grafana Alloy** liest, verarbeitet und versendet lokale Beispiel- und
+  Anwendungslogs.
 - **OpenTelemetry Collector** ist als optionales Compose-Profil vorbereitet.
 - Ein kleiner **Log-Generator** erzeugt sofort sichtbare Testdaten.
 
@@ -19,15 +20,14 @@ down` behält die Daten daher bei.
 | Prometheus | `prom/prometheus:v3.12.0` |
 | Grafana | `grafana/grafana:13.1.0` |
 | Loki | `grafana/loki:3.6.11` |
-| Promtail | `grafana/promtail:3.6.11` |
+| Grafana Alloy | `grafana/alloy:v1.19.2` |
 | OpenTelemetry Collector Contrib | `otel/opentelemetry-collector-contrib:0.157.0` |
 
-> **Wichtiger Promtail-Hinweis:** Promtail ist seit dem 2. März 2026 EOL und
-> wurde ab Loki 3.7.3 entfernt. Loki und Promtail sind deshalb gemeinsam auf
-> die letzte gepflegte 3.6-Linie gepinnt. Für ein neues Produktionssystem sollte
-> Promtail mittelfristig durch Grafana Alloy ersetzt werden. Für dieses lokale
-> Lern- und Referenzprojekt bleibt die ausdrücklich gewünschte Kombination
-> reproduzierbar.
+Promtail ist seit dem 2. März 2026 EOL und wurde deshalb durch Grafana Alloy
+ersetzt. Die Alloy-Konfiguration bildet die bisherige JSON-Pipeline vollständig
+nach. Beim ersten Start beginnt Alloy am Ende vorhandener Dateien: Historische
+Einträge bleiben in Loki erhalten, neue Zeilen werden ohne Doppelimport
+verarbeitet.
 
 ## Voraussetzungen
 
@@ -56,7 +56,7 @@ observability-stack/
 │       ├── dashboards/dashboards.yml
 │       └── datasources/datasources.yml
 ├── loki/config.yml
-├── promtail/config.yml
+├── alloy/config.alloy
 ├── otel-collector/config.yml
 └── sample-logs/
 ```
@@ -86,7 +86,9 @@ Oberflächen:
 
 Die Grafana-Zugangsdaten stehen in `.env`. Unter **Dashboards → Observability**
 ist das Dashboard **Observability Stack – Übersicht** automatisch vorhanden.
-Prometheus und Loki sind bereits als Datasources eingerichtet.
+Prometheus und Loki sind bereits als Datasources eingerichtet. Alloy läuft
+ohne veröffentlichten Host-Port; seine interne UI und Metriken sind nur im
+Compose-Netz unter `alloy:12345` erreichbar.
 
 ## Funktion testen
 
@@ -96,8 +98,8 @@ Prometheus und Loki sind bereits als Datasources eingerichtet.
 docker compose ps
 ```
 
-Prometheus und Grafana sollten nach kurzer Zeit `healthy` anzeigen. Loki,
-Promtail und der Log-Generator sollten `running` sein.
+Prometheus, Grafana und Alloy sollten nach kurzer Zeit `healthy` anzeigen.
+Loki und der Log-Generator sollten `running` sein.
 
 ### 2. HTTP-Endpunkte
 
@@ -110,15 +112,15 @@ curl -fsS http://localhost:3100/ready
 ### 3. Prometheus-Targets
 
 <http://localhost:9090/targets> öffnen. Die Jobs `prometheus`, `grafana`,
-`loki` und `promtail` sollten `UP` sein. `otel-collector` ist ohne das
+`loki` und `alloy` sollten `UP` sein. `otel-collector` ist ohne das
 optionale Profil erwartungsgemäß `DOWN`.
 
 ### 4. Logs in Loki
 
 Der Dienst `log-generator` schreibt alle 15 Sekunden eine JSON-Zeile nach
-`sample-logs/demo.log`. Promtail sendet sie an Loki. Im mitgelieferten
-Grafana-Dashboard erscheinen die Meldungen normalerweise nach spätestens
-30 Sekunden.
+`sample-logs/demo.log`. Alloy parst die JSON-Zeilen und sendet sie an Loki. Im
+mitgelieferten Grafana-Dashboard erscheinen die Meldungen normalerweise nach
+spätestens 30 Sekunden.
 
 Alternativ in Grafana **Explore** öffnen, Loki auswählen und abfragen:
 
@@ -190,9 +192,9 @@ Docker-Netzwerk oder ein Scrape über den veröffentlichten Host-Port sinnvoll.
 ### Logs
 
 Für den lokalen Einstieg kann eine Anwendung strukturierte JSON-Logs in eine
-Datei unter `sample-logs/` schreiben. Bei containerisierten Anwendungen sollte
-später Grafana Alloy oder ein OpenTelemetry-Collector als Log-Agent eingesetzt
-werden. Das Mounten von `/var/lib/docker/containers` ist unter Docker Desktop
+Datei unter `sample-logs/` schreiben. Bei containerisierten Anwendungen kann
+Alloy um eine passende Docker- oder OTLP-Quelle erweitert werden. Das Mounten
+von `/var/lib/docker/containers` ist unter Docker Desktop
 für macOS nicht zuverlässig portabel und wird hier deshalb bewusst vermieden.
 
 ## Stoppen und neu starten
@@ -234,15 +236,19 @@ docker compose logs --since=5m
 
 5. Dashboard, Prometheus-Targets und Loki-Abfrage prüfen.
 
-Bei Loki und Promtail die 3.6-Linie nicht einzeln auseinanderziehen. Der
-empfohlene nächste größere Schritt ist die Migration von Promtail zu Alloy,
-nicht ein Update von Promtail auf 3.7.3 oder neuer.
+Alloy folgt einem eigenen Release-Zyklus. Vor einem Versionssprung müssen daher
+die Alloy-Release-Notes und mögliche Änderungen an den `loki.*`-Komponenten
+separat von Loki geprüft werden.
 
 ## Backup und Wiederherstellung
 
 Die persistenten Daten liegen in den benannten Volumes
 `observability-stack_prometheus-data`, `observability-stack_grafana-data`,
-`observability-stack_loki-data` und `observability-stack_promtail-data`.
+`observability-stack_loki-data` und `observability-stack_alloy-data`.
+
+Das frühere Volume `observability-stack_promtail-data` wird nicht mehr
+eingebunden. Es enthält keine Logdaten, sondern nur die alten Datei-Offsets und
+kann nach erfolgreicher Prüfung der Alloy-Pipeline manuell entfernt werden.
 
 Für ein einfaches lokales Backup zuerst Schreibzugriffe stoppen:
 
@@ -273,7 +279,7 @@ Wiederherstellungen regelmäßig getestet werden.
 ## Daten vollständig löschen
 
 > Der folgende Befehl löscht alle Metriken, Loki-Logs, Grafana-Änderungen und
-> Promtail-Positionen dieses Stacks dauerhaft.
+> Alloy-Lesepositionen dieses Stacks dauerhaft.
 
 ```bash
 docker compose down --volumes
@@ -333,7 +339,7 @@ Targets sollten `UP` sein.
 ### Keine Logs in Grafana
 
 ```bash
-docker compose logs log-generator promtail loki
+docker compose logs log-generator alloy loki
 tail -n 5 sample-logs/demo.log
 ```
 
@@ -343,6 +349,16 @@ Zusätzlich kontrollieren:
 - Zeitraum auf „Letzte 30 Minuten“ stellen.
 - LogQL-Abfrage `{job="sample-logs"}` verwenden.
 - Nach dem ersten Start bis zu 30 Sekunden warten.
+
+Alloys Komponentenstatus ist innerhalb des Compose-Netzes unter
+`http://alloy:12345` verfügbar. Die laufende Konfiguration lässt sich ohne
+Host-Port so prüfen:
+
+```bash
+docker compose exec alloy alloy validate /etc/alloy/config.alloy
+docker compose exec alloy /bin/bash -ec \
+  "exec 3<>/dev/tcp/127.0.0.1/12345; printf 'GET /-/healthy HTTP/1.0\\r\\n\\r\\n' >&3; cat <&3"
+```
 
 ### Loki meldet Berechtigungsfehler
 

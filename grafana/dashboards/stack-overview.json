@@ -91,7 +91,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "up{job=~\"prometheus|grafana|loki|promtail\"}",
+          "expr": "up{job=~\"prometheus|grafana|loki|alloy\"}",
           "legendFormat": "{{job}}",
           "range": true,
           "refId": "A"
