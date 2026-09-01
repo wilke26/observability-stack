@@ -30,7 +30,10 @@ jobs:
           printf '%s\n' 'ci-only-metrics-token' > secrets/isd_metrics_token
 
       - name: Validate Docker Compose
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          docker compose config --format json > /tmp/compose.json
+          grep --fixed-strings 'host.docker.internal=host-gateway' /tmp/compose.json
 
       - name: Validate Prometheus configuration
         run: |

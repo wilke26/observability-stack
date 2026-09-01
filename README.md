@@ -1,6 +1,7 @@
-# Observability Stack für macOS
+# Plattformübergreifender Observability Stack
 
-Lokaler, reproduzierbarer Observability-Stack für Docker Desktop:
+Lokaler, reproduzierbarer Observability-Stack für Docker Desktop oder Docker
+Engine:
 
 - **Prometheus** sammelt und speichert Metriken.
 - **Grafana** visualisiert Metriken und Logs.
@@ -31,9 +32,9 @@ Migrationsablauf dokumentiert.
 
 ## Voraussetzungen
 
-1. macOS Tahoe auf Apple Silicon oder Intel
-2. Docker Desktop in einer aktuellen Version
-3. Mindestens 4 GB für Docker verfügbare Arbeitsspeicher
+1. Docker Desktop oder Docker Engine in einer aktuellen Version
+2. Docker Compose v2 und Unterstützung für Linux-Container
+3. Mindestens 4 GB für Docker verfügbarer Arbeitsspeicher
 4. Freie lokale Ports 3000, 3100 und 9090
 
 Prüfen:
@@ -42,6 +43,40 @@ Prüfen:
 docker version
 docker compose version
 ```
+
+Getestete Entwicklungsumgebung ist macOS Tahoe auf Apple Silicon. Die
+Konfiguration verwendet ausschließlich Linux-Container und wird in CI auf
+Ubuntu validiert. Sie ist daher ebenso für Windows 11 mit WSL2 sowie für
+native Linux-Systeme vorgesehen.
+
+## Plattformhinweise
+
+### Windows 11
+
+Docker Desktop muss mit dem WSL2-Backend im Linux-Container-Modus laufen. Die
+Beispiele in dieser Dokumentation verwenden eine POSIX-Shell; am einfachsten
+werden Repository und Befehle deshalb innerhalb einer WSL2-Distribution
+verwendet. Native PowerShell benötigt für Befehle wie `cp`, `sed`, `chmod`,
+`test`, `rm` und für `$PWD` entsprechende PowerShell-Varianten.
+
+Ein Repository im WSL-Dateisystem bietet außerdem verlässlichere
+Dateiberechtigungen und meist bessere Bind-Mount-Performance als ein Checkout
+unter `C:\`.
+
+### Linux
+
+Prometheus erreicht Anwendungen auf dem Docker-Host über
+`host.docker.internal`. Der dafür nötige `host-gateway`-Eintrag ist in
+`docker-compose.yml` explizit gesetzt, weil native Docker-Engines den Namen im
+Gegensatz zu Docker Desktop nicht immer automatisch bereitstellen.
+
+Der Log-Generator kann `sample-logs/demo.log` auf nativen Linux-Systemen als
+`root` anlegen. Das beeinträchtigt die Verarbeitung nicht, kann aber für eine
+spätere Bearbeitung oder Löschung auf dem Host eine Rechteanpassung erfordern.
+Auf Systemen mit SELinux, insbesondere Fedora und RHEL, benötigen die
+Bind-Mounts je nach lokaler Policy zusätzlich ein passendes `:z`- oder
+`:Z`-Label. Die persistenten Daten von Prometheus, Grafana, Loki und Alloy
+liegen in benannten Volumes und sind davon nicht betroffen.
 
 ## Verzeichnisstruktur
 
@@ -81,6 +116,10 @@ sed -n 's/^METRICS_TOKEN=//p' ../isd/.env > secrets/isd_metrics_token
 chmod 600 secrets/isd_metrics_token
 test -s secrets/isd_metrics_token && echo "Metrics-Token vorhanden"
 ```
+
+`chmod 600` schützt die Datei auf POSIX-Dateisystemen. Bei einem nativen
+Windows-Checkout müssen die Zugriffsrechte stattdessen über Windows-ACLs
+gesetzt werden; innerhalb von WSL2 gilt der gezeigte Befehl unverändert.
 
 Liegt das Backend an einem anderen Ort, muss der Pfad zu dessen `.env`
 entsprechend angepasst werden. Compose bricht absichtlich mit einer klaren
@@ -134,7 +173,7 @@ curl -fsS http://localhost:3100/ready
 optionale Profil erwartungsgemäß `DOWN`.
 
 Der mitgelieferte ISD-Scrape sendet den Bearer-Token per HTTP ausschließlich
-über das lokale Docker-Desktop-Netz an `host.docker.internal`. Diese
+über den lokalen Docker-Host-Zugang an `host.docker.internal`. Diese
 Konfiguration ist nur für eine lokale Entwicklungsumgebung vorgesehen. Für
 einen entfernten, gemeinsam genutzten oder produktiven Metrics-Endpunkt muss
 in `prometheus/prometheus.yml` `scheme: https` gesetzt und eine gültige
@@ -193,8 +232,8 @@ docker compose rm -f otel-collector
 
 ### Prometheus-Metriken
 
-Wenn eine Anwendung auf dem Mac läuft, ist sie aus Docker Desktop gewöhnlich
-unter `host.docker.internal` erreichbar. Beispiel für
+Wenn eine Anwendung auf dem Docker-Host läuft, ist sie aus dem Stack unter
+`host.docker.internal` erreichbar. Beispiel für
 `prometheus/prometheus.yml`:
 
 ```yaml
@@ -219,8 +258,9 @@ Docker-Netzwerk oder ein Scrape über den veröffentlichten Host-Port sinnvoll.
 Für den lokalen Einstieg kann eine Anwendung strukturierte JSON-Logs in eine
 Datei unter `sample-logs/` schreiben. Bei containerisierten Anwendungen kann
 Alloy um eine passende Docker- oder OTLP-Quelle erweitert werden. Das Mounten
-von `/var/lib/docker/containers` ist unter Docker Desktop
-für macOS nicht zuverlässig portabel und wird hier deshalb bewusst vermieden.
+von `/var/lib/docker/containers` ist zwischen Docker Desktop, nativen Engines
+und rootless Installationen nicht zuverlässig portabel und wird hier deshalb
+bewusst vermieden.
 
 ## Stoppen und neu starten
 
@@ -417,8 +457,8 @@ docker compose exec alloy /bin/bash -ec \
 
 ### Loki meldet Berechtigungsfehler
 
-Der Stack verwendet ein Docker-Volume statt eines macOS-Bind-Mounts für
-`/loki`; dadurch sind typische UID-Probleme bereits vermieden. Falls ein altes
+Der Stack verwendet ein Docker-Volume statt eines Host-Bind-Mounts für `/loki`;
+dadurch sind typische UID-Probleme bereits vermieden. Falls ein altes
 Volume falsche Rechte enthält und die Daten entbehrlich sind, den Stack samt
 Volumes neu anlegen:
 
@@ -427,11 +467,11 @@ docker compose down --volumes
 docker compose up -d
 ```
 
-### Apple-Silicon-Kompatibilität
+### CPU-Architektur
 
-Die verwendeten Images sind Multi-Architecture-Images. Ein erzwungenes
-`platform: linux/amd64` ist nicht nötig und würde auf Apple Silicon unnötige
-Emulation verursachen.
+Die verwendeten Images sind Multi-Architecture-Images für AMD64 und ARM64. Ein
+erzwungenes `platform: linux/amd64` ist nicht nötig und würde auf ARM64-Systemen
+wie Apple Silicon unnötige Emulation verursachen.
 
 ### Diagnoseübersicht erzeugen
 

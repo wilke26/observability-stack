@@ -11,6 +11,10 @@ services:
       - --web.enable-lifecycle
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    extra_hosts:
+      # Docker Desktop provides this name automatically. The explicit
+      # host-gateway mapping makes the same target work on native Linux.
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - type: bind
