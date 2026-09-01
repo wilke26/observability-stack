@@ -64,17 +64,42 @@ services:
       - loki-data:/loki
     networks: [observability]
 
-  promtail:
-    image: grafana/promtail:${PROMTAIL_VERSION:-3.6.11}
+  alloy:
+    image: grafana/alloy:${ALLOY_VERSION:-v1.19.2}
+    user: "473:473"
     restart: unless-stopped
     depends_on:
       loki:
         condition: service_started
-    command: -config.file=/etc/promtail/config.yml
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
     volumes:
-      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       - ./sample-logs:/var/log/apps:ro
-      - promtail-data:/run/promtail
+      - alloy-data:/var/lib/alloy/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - /bin/bash
+        - -ec
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/12345;
+          printf 'GET /-/ready HTTP/1.0\r\n\r\n' >&3;
+          grep -q '200 OK' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     networks: [observability]
 
   log-generator:
@@ -119,4 +144,4 @@ volumes:
   prometheus-data:
   grafana-data:
   loki-data:
-  promtail-data:
+  alloy-data:
