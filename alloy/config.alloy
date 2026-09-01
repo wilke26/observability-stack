@@ -42,11 +42,10 @@ loki.source.file "sample_logs" {
 		enabled = true
 	}
 
-	// Promtail's legacy volume is root-owned while Alloy deliberately runs as
-	// an unprivileged user. Start at the end of existing files during the
-	// one-time migration: their old entries are already stored in Loki, while
-	// newly appended lines are processed without duplicates.
-	tail_from_end = true
+	// Normal operation must read newly discovered files from the beginning.
+	// Set ALLOY_TAIL_FROM_END=true only for the documented one-time migration
+	// from Promtail, where the existing entries are already stored in Loki.
+	tail_from_end = sys.env("ALLOY_TAIL_FROM_END") == "true"
 }
 
 loki.write "default" {
