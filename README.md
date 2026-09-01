@@ -25,9 +25,9 @@ down` behält die Daten daher bei.
 
 Promtail ist seit dem 2. März 2026 EOL und wurde deshalb durch Grafana Alloy
 ersetzt. Die Alloy-Konfiguration bildet die bisherige JSON-Pipeline vollständig
-nach. Beim ersten Start beginnt Alloy am Ende vorhandener Dateien: Historische
-Einträge bleiben in Loki erhalten, neue Zeilen werden ohne Doppelimport
-verarbeitet.
+nach. Im Normalbetrieb liest Alloy neue Dateien vom Anfang. Für den einmaligen
+Wechsel von Promtail ist weiter unten ein eigener, duplikatfreier
+Migrationsablauf dokumentiert.
 
 ## Voraussetzungen
 
@@ -69,7 +69,25 @@ Im Repository-Verzeichnis:
 cp .env.example .env
 ```
 
-Danach in `.env` mindestens `GRAFANA_ADMIN_PASSWORD` ändern. Anschließend:
+Danach in `.env` mindestens `GRAFANA_ADMIN_PASSWORD` ändern.
+
+Prometheus benötigt denselben `METRICS_TOKEN`, der im ISD-Backend konfiguriert
+ist. Bei der empfohlenen Verzeichnisstruktur mit beiden Repositories als
+Nachbarn wird die geschützte Token-Datei so angelegt:
+
+```bash
+mkdir -p secrets
+sed -n 's/^METRICS_TOKEN=//p' ../isd/.env > secrets/isd_metrics_token
+chmod 600 secrets/isd_metrics_token
+test -s secrets/isd_metrics_token && echo "Metrics-Token vorhanden"
+```
+
+Liegt das Backend an einem anderen Ort, muss der Pfad zu dessen `.env`
+entsprechend angepasst werden. Compose bricht absichtlich mit einer klaren
+Fehlermeldung ab, wenn die Token-Datei fehlt; es wird kein gleichnamiges
+Verzeichnis mehr automatisch erzeugt.
+
+Anschließend:
 
 ```bash
 docker compose config --quiet
@@ -114,6 +132,13 @@ curl -fsS http://localhost:3100/ready
 <http://localhost:9090/targets> öffnen. Die Jobs `prometheus`, `grafana`,
 `loki` und `alloy` sollten `UP` sein. `otel-collector` ist ohne das
 optionale Profil erwartungsgemäß `DOWN`.
+
+Der mitgelieferte ISD-Scrape sendet den Bearer-Token per HTTP ausschließlich
+über das lokale Docker-Desktop-Netz an `host.docker.internal`. Diese
+Konfiguration ist nur für eine lokale Entwicklungsumgebung vorgesehen. Für
+einen entfernten, gemeinsam genutzten oder produktiven Metrics-Endpunkt muss
+in `prometheus/prometheus.yml` `scheme: https` gesetzt und eine gültige
+TLS-Konfiguration verwendet werden.
 
 ### 4. Logs in Loki
 
@@ -229,7 +254,7 @@ Die Versionen werden in `.env` festgelegt. Nicht blind `latest` verwenden.
 ```bash
 docker compose config --quiet
 docker compose pull
-docker compose up -d
+docker compose up -d --remove-orphans
 docker compose ps
 docker compose logs --since=5m
 ```
@@ -239,6 +264,36 @@ docker compose logs --since=5m
 Alloy folgt einem eigenen Release-Zyklus. Vor einem Versionssprung müssen daher
 die Alloy-Release-Notes und mögliche Änderungen an den `loki.*`-Komponenten
 separat von Loki geprüft werden.
+
+### Einmalige Migration von Promtail zu Alloy
+
+Dieser Abschnitt gilt nur für Installationen, die noch mit Promtail liefen und
+noch keine Alloy-Lesepositionen im Volume `observability-stack_alloy-data`
+besitzen. Bereits auf Alloy migrierte Installationen verwenden den normalen
+Update-Ablauf oben.
+
+Beim ersten Alloy-Start werden vorhandene Dateien einmalig am Ende geöffnet,
+weil ihre älteren Einträge bereits von Promtail an Loki übertragen wurden.
+`--remove-orphans` entfernt dabei den nicht mehr definierten, sonst weiterhin
+laufenden Promtail-Container:
+
+```bash
+ALLOY_TAIL_FROM_END=true docker compose up -d --remove-orphans
+docker compose ps alloy
+```
+
+Sobald Alloy `healthy` ist, wird ausschließlich Alloy mit der normalen
+Einstellung neu erzeugt. Gespeicherte Positionen werden dabei beibehalten;
+neu entdeckte oder rotierte Dateien beginnen künftig wieder am Anfang:
+
+```bash
+docker compose up -d --force-recreate alloy
+docker compose ps alloy
+```
+
+`ALLOY_TAIL_FROM_END` darf nicht dauerhaft in `.env` auf `true` gesetzt werden,
+da sonst Zeilen übersprungen werden können, die vor der nächsten Dateisuche in
+einer neuen Logdatei geschrieben wurden.
 
 ## Backup und Wiederherstellung
 
