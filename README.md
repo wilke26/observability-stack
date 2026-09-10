@@ -139,7 +139,7 @@ Available interfaces:
 - Loki readiness: <http://localhost:3100/ready>
 
 Grafana credentials are configured in `.env`. The pre-provisioned
-**Observability Stack – Overview** dashboard is available under
+**Observability Stack – Übersicht** dashboard is available under
 **Dashboards → Observability**. Prometheus and Loki are already configured as data
 sources. Alloy exposes no host port; its internal UI and metrics are available
 only inside the Compose network at `alloy:12345`.
